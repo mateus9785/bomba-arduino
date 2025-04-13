@@ -147,6 +147,8 @@ unsigned long errorSoundStartTime = 0;
 const unsigned long errorSoundDuration = 2000; // 2 seconds of error sound
 const int errorToneFrequency = 1000; // Error tone frequency (Hz)
  
+int correctWireIndex = 7; // Index of the wire to cut (0-7)
+
 /* ***************************************************
  *           Global Adjustable Variables             *
  *************************************************** */
@@ -408,9 +410,12 @@ int getCorrectWireIndex() {
   int uncutWiresCount = countUncutWires();
   
   switch (uncutWiresCount) {
-    case 8: return 7;  // Laranja (fino) - D - Pin 14
+    case 8: 
+      Serial.println("Entering case 8");
+      return 7;  // Laranja (fino) - D - Pin 14
     
     case 7: 
+      Serial.println("Entering case 7");
       // If the last cut wire was Amarelo or Laranja or Vermelho
       if (lastCutWireIndex == 5 || lastCutWireIndex == 6 || lastCutWireIndex == 7 || 
           lastCutWireIndex == 1 || lastCutWireIndex == 3) {
@@ -435,8 +440,10 @@ int getCorrectWireIndex() {
       } else {
         return 7; // Cut thin orange wire (Laranja fino - D - Index 7)
       }
+      break;
       
     case 6: 
+      Serial.println("Entering case 6");
       // Check if there's a thick purple wire and thin orange wire hasn't been cut
       if (wireStates[2] && wireStates[7]) { // Roxo (grosso) - G and Laranja (fino) - D
         return 7; // Cut thin orange wire
@@ -461,8 +468,10 @@ int getCorrectWireIndex() {
       if (wireStates[6]) return 6;       // Amarelo (fino) - C
       // No Preto (grosso) in our configuration
       if (wireStates[0]) return 0;       // Roxo (fino) - E
+      break;
       
     case 5:
+      Serial.println("Entering case 5");
       // Count colored wires (Amarelo, Laranja, Vermelho)
       int coloredWireCount = 0;
       int darkWireCount = 0;
@@ -510,8 +519,10 @@ int getCorrectWireIndex() {
       if (wireStates[3]) return 3; // Vermelho (fino) - H
       if (wireStates[2]) return 2; // Roxo (grosso) - G
       if (wireStates[4]) return 4; // Preto (fino) - A
+      break;
       
     case 4:
+      Serial.println("Entering case 4");
       // Check if last cut wire was Yellow (Amarelo)
       if (lastCutWireIndex == 5 || lastCutWireIndex == 6) { // Amarelo (grosso or fino)
         // Check if there are 2 or more thick wires left
@@ -577,8 +588,10 @@ int getCorrectWireIndex() {
         if (wireStates[7]) return 7; // Laranja (fino) - D
         if (wireStates[6]) return 6; // Amarelo (fino) - C
       }
+      break;
       
     case 3:
+      Serial.println("Entering case 3");
       // Check if the remaining wires are Yellow, Red, and any other color
       bool hasYellow = wireStates[5] || wireStates[6]; // Amarelo (grosso or fino)
       bool hasRed = wireStates[1] || wireStates[3];    // Vermelho (grosso or fino)
@@ -657,8 +670,10 @@ int getCorrectWireIndex() {
         if (wireStates[6]) return 6; // Amarelo (fino) - C
         if (wireStates[5]) return 5; // Amarelo (grosso) - B
       }
+      break;
       
     case 2:
+      Serial.println("Entering case 2");
       // Store the indexes of the remaining two wires
       int remainingWires[2];
       int wireCount = 0;
@@ -775,18 +790,22 @@ int getCorrectWireIndex() {
       if (wireStates[5]) return 5; // Amarelo grosso
       // No Laranja grosso in our configuration
       if (wireStates[2]) return 2; // Roxo grosso
+      break;
       
     case 1:
+      Serial.println("Entering case 1");
       // If only one wire is left, cut it
       for (int i = 0; i < 8; i++) {
         if (wireStates[i]) {
           return i; // Cut the last remaining wire
         }
       }
+      break;
 
     default: return -1;
   }
 }
+
 
 // Print the current state of all wires
 void printWireStates() {
@@ -805,8 +824,7 @@ void printWireStates() {
   }
   Serial.println("]");
   
-  // Print next wire to cut
-  int correctWireIndex = getCorrectWireIndex();
+  correctWireIndex = getCorrectWireIndex();
   if (correctWireIndex >= 0) {
     Serial.print("Próximo fio a ser cortado: ");
     Serial.println(wireNames[correctWireIndex]);
@@ -846,7 +864,7 @@ void processWires() {
       Serial.println(" !!!");
       
       // Get the correct wire that should have been cut
-      int correctWireIndex = getCorrectWireIndex();
+      correctWireIndex = getCorrectWireIndex();
       
       // Update wire state to cut
       wireStates[i] = false;
