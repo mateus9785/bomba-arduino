@@ -11,6 +11,7 @@ const int dataPin  = 2;    // DS pin (serial data) - CHANGED from 12
 const int latchPin = 3;    // STCP pin (storage register clock) - CHANGED from 11
 const int clockPin = 4;    // SHCP pin (shift register clock) - CHANGED from 9
 const int buzzerPin = 10;  // Digital pin for the buzzer
+const int detonatorPin = 9; // Detonator pin
 
 // Pins for button reading (74HC165 shift register)
 #define SHIFT_LOAD_PIN 11  // SH/LD pin (pin 1)
@@ -124,8 +125,13 @@ const int minBeepInterval = 100;   // Minimum interval between beeps (ms)
 
 // Alarm variables
 unsigned long alarmStartTime = 0;   // When the alarm started
-const unsigned long alarmDuration = 30000; // 30 seconds in milliseconds
+const unsigned long alarmDuration = 10000; // 10 seconds in milliseconds
 bool alarmActive = false;           // Flag to track if alarm is sounding
+
+// Detonator variables
+bool detonatorActive = false;           // Flag to track if detonator is activated
+unsigned long detonatorStartTime = 0;    // When the detonator was activated
+const unsigned long detonatorDuration = 5000; // 5 seconds in milliseconds
 
 // LED control variables
 int currentLedIndex = 0;    // Tracks which LED should be lit next
@@ -139,7 +145,7 @@ int ledOnDuration = 100;    // How long each LED stays on (ms)
 bool errorSoundActive = false;
 unsigned long errorSoundStartTime = 0;
 const unsigned long errorSoundDuration = 2000; // 2 seconds of error sound
-const int errorToneFrequency = 300; // Error tone frequency (Hz)
+const int errorToneFrequency = 1000; // Error tone frequency (Hz)
  
 /* ***************************************************
  *           Global Adjustable Variables             *
@@ -150,7 +156,6 @@ int displayRefreshInterval = 5;       // refresh display every 5ms
 int secondUpdateInterval = 1000;      // update counter every 1000ms (1 second)
 int buttonReadInterval = 500;         // check wires every 500ms
 unsigned long lastButtonReadTime = 0; // tracks when wires were last read
-#define DEBUG_MODE false              // Set to false in production to improve display responsiveness
 
 /* ***************************************************
  *              Display Functions                    *
@@ -167,6 +172,13 @@ void UpdateDisplay() {
 }
 
 void CountSecondTimer() {
+    // Add check for success state at the beginning
+    if (successState) {
+        // Stop all sounds when in success state
+        noTone(buzzerPin);
+        return;
+    }
+    
     if (!timerRunning || (timerFinished && !alarmActive)) {
         return;
     }
@@ -176,6 +188,12 @@ void CountSecondTimer() {
     if (alarmActive && (currentMillis - alarmStartTime >= alarmDuration)) {
         alarmActive = false;
         noTone(buzzerPin);
+    }
+    
+    // Check if detonator needs to be turned off
+    if (detonatorActive && (currentMillis - detonatorStartTime >= detonatorDuration)) {
+        detonatorActive = false;
+        digitalWrite(detonatorPin, LOW);
     }
     
     // If alarm is active, don't update the timer but make LEDs blink in sequence
@@ -207,6 +225,13 @@ void CountSecondTimer() {
                 timerFinished = true;
                 alarmActive = true;
                 alarmStartTime = currentMillis;
+                
+                // Only activate detonator if bomb has not been successfully defused
+                if (!successState) {
+                    detonatorActive = true;
+                    detonatorStartTime = currentMillis;
+                    digitalWrite(detonatorPin, HIGH);
+                }
                 
                 // Start continuous alarm
                 tone(buzzerPin, 2000);
@@ -313,9 +338,7 @@ void CheckLedStatus() {
  *              Wire Reading Functions               *
  *************************************************** */
 // Function to log detailed status of LEDs
-void logLEDStatus() {
-  if (!DEBUG_MODE) return;
-  
+void logLEDStatus() { 
   Serial.println("--- LED Status ---");
   Serial.print("GREEN LED: ");
   Serial.println(digitalRead(LED_GREEN_PIN) == HIGH ? "ON" : "OFF");
@@ -342,28 +365,11 @@ byte readWires() {
     int bitValue = digitalRead(SHIFT_DATA_PIN);
     wireReading |= (bitValue << i);
     
-    if (DEBUG_MODE) {
-      Serial.print("Bit ");
-      Serial.print(i);
-      Serial.print(": ");
-      Serial.println(bitValue);
-    }
-    
     // Pulse the clock
     digitalWrite(SHIFT_CLK_PIN, HIGH);
     delayMicroseconds(5);
     digitalWrite(SHIFT_CLK_PIN, LOW);
     delayMicroseconds(5);
-  }
-  
-  if (DEBUG_MODE) {
-    Serial.print("Raw 74HC165 data: 0b");
-    for (int i = 7; i >= 0; i--) {
-      Serial.print((wireReading >> i) & 1);
-    }
-    Serial.print(" (");
-    Serial.print(wireReading, DEC);
-    Serial.println(")");
   }
   
   return wireReading;
@@ -770,6 +776,14 @@ int getCorrectWireIndex() {
       // No Laranja grosso in our configuration
       if (wireStates[2]) return 2; // Roxo grosso
       
+    case 1:
+      // If only one wire is left, cut it
+      for (int i = 0; i < 8; i++) {
+        if (wireStates[i]) {
+          return i; // Cut the last remaining wire
+        }
+      }
+
     default: return -1;
   }
 }
@@ -798,6 +812,8 @@ void printWireStates() {
     Serial.println(wireNames[correctWireIndex]);
     Serial.print("Fios restantes: ");
     Serial.println(countUncutWires());
+  } else {
+    Serial.println("Nenhum fio correto encontrado.");
   }
 }
 
@@ -811,8 +827,6 @@ void processWires() {
   }
   
   lastButtonReadTime = currentMillis;
-  
-  if (DEBUG_MODE) Serial.println("\n----- NOVA LEITURA DOS FIOS -----");
   
   // Read wire states from 74HC165
   byte wireData = readWires();
@@ -842,7 +856,8 @@ void processWires() {
       printWireStates();
       
       // Check if correct wire was cut
-      if (i == correctWireIndex || correctWireIndex == -1) {
+      if (i == correctWireIndex || correctWireIndex <= -1) {
+        Serial.println("INDEX: " + String(correctWireIndex));
         Serial.println("ACERTOU! Fio correto cortado.");
         // Only turn on success LED if this was the last wire and timer didn't reach zero
         if (countUncutWires() == 0 && !timerFinished) {
@@ -851,6 +866,7 @@ void processWires() {
           Serial.println("BOMBA DESARMADA COM SUCESSO!");
         }
       } else {
+        Serial.println("INDEX: " + String(correctWireIndex));
         errorState = true;
         errorLedStartTime = millis();  // Start timing for solid LED duration
         Serial.println("ERRO! Fio errado cortado.");
@@ -895,25 +911,24 @@ void updateErrorLEDs() {
     digitalWrite(LED_ERROR1_PIN, HIGH);
     digitalWrite(LED_ERROR2_PIN, HIGH);
     digitalWrite(LED_ERROR3_PIN, HIGH);
-    
-    if (DEBUG_MODE) {
-      Serial.println("All ERROR LEDs turned ON");
-      logLEDStatus();
-    }
   }
 }
 
 // New helper function to reduce the timer by 5 minutes
 void reduceTimer() {
   currentMinute -= 5;
-  if (DEBUG_MODE) Serial.println("Timer reduced by 5 minutes!");
   
   // Handle case where timer would go below zero
   if (currentMinute < 0) {
+    unsigned long currentMillis = millis();
+
     currentMinute = 0;
     currentSecond = 0;
     timerFinished = true;
-    if (DEBUG_MODE) Serial.println("Timer reached zero due to error penalty!");
+
+    detonatorActive = true;
+    detonatorStartTime = currentMillis;
+    digitalWrite(detonatorPin, HIGH);
   }
   
   UpdateDisplay(); // Update display to show the new time
@@ -953,7 +968,8 @@ void print74HC165PinStates() {
 
 // New function to check and play beeps based on remaining time
 void CheckAndPlayBeeps() {
-  if (!timerRunning || timerFinished || alarmActive) {
+  // Add check for success state
+  if (successState || !timerRunning || timerFinished || alarmActive) {
       return;
   }
   
@@ -979,6 +995,14 @@ void CheckAndPlayBeeps() {
 
 // Add this new function to manage error LED behavior
 void manageErrorLeds() {
+  // Turn off all error LEDs if in success state
+  if (successState) {
+      digitalWrite(LED_ERROR1_PIN, LOW);
+      digitalWrite(LED_ERROR2_PIN, LOW);
+      digitalWrite(LED_ERROR3_PIN, LOW);
+      return;
+  }
+  
   if (!errorState) return;
   
   unsigned long currentTime = millis();
@@ -1021,6 +1045,8 @@ void setup() {
     pinMode(clockPin, OUTPUT);
     pinMode(dataPin, OUTPUT);
     pinMode(buzzerPin, OUTPUT); // Initialize buzzer pin as output
+    pinMode(detonatorPin, OUTPUT); // Initialize detonator pin as output
+    digitalWrite(detonatorPin, LOW); // Ensure detonator starts inactive
     
     // Setup wire reading pins
     pinMode(SHIFT_LOAD_PIN, OUTPUT);
