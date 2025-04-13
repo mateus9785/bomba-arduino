@@ -132,6 +132,7 @@ bool alarmActive = false;           // Flag to track if alarm is sounding
 bool detonatorActive = false;           // Flag to track if detonator is activated
 unsigned long detonatorStartTime = 0;    // When the detonator was activated
 const unsigned long detonatorDuration = 5000; // 5 seconds in milliseconds
+int detonatorActivationCount = 0;       // Counter for detonator activations
 
 // LED control variables
 int currentLedIndex = 0;    // Tracks which LED should be lit next
@@ -229,10 +230,12 @@ void CountSecondTimer() {
                 alarmStartTime = currentMillis;
                 
                 // Only activate detonator if bomb has not been successfully defused
-                if (!successState) {
+                // and it hasn't been activated before
+                if (!successState && detonatorActivationCount == 0) {
                     detonatorActive = true;
                     detonatorStartTime = currentMillis;
                     digitalWrite(detonatorPin, HIGH);
+                    detonatorActivationCount++; // Increment activation counter
                 }
                 
                 // Start continuous alarm
@@ -932,9 +935,13 @@ void reduceTimer() {
     currentSecond = 0;
     timerFinished = true;
 
-    detonatorActive = true;
-    detonatorStartTime = currentMillis;
-    digitalWrite(detonatorPin, HIGH);
+    // Only activate detonator if it hasn't been activated before
+    if (detonatorActivationCount == 0) {
+        detonatorActive = true;
+        detonatorStartTime = currentMillis;
+        digitalWrite(detonatorPin, HIGH);
+        detonatorActivationCount++; // Increment activation counter
+    }
   }
   
   UpdateDisplay(); // Update display to show the new time
